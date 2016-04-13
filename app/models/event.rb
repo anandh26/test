@@ -1,11 +1,5 @@
 class Event < ActiveRecord::Base
-  scope :event_exists, lambda {|day|
-    where("starts_at >= ? AND ends_at <= ? AND Kind in ('opening', 'appointment')", day.beginning_of_day, day.end_of_day)
-  }
-
-  scope :weekly_recurring_events, lambda {
-    where(weekly_recurring: true, kind: 'opening')
-  }
+  scope :weekly_recurring_events, lambda { where(weekly_recurring: true, kind: 'opening') }
 
   scope :non_recurring_events, lambda { |day|
     where("starts_at >= ? AND ends_at <= ? AND weekly_recurring = ? ", day.beginning_of_day, day.end_of_day, false)
@@ -19,7 +13,7 @@ class Event < ActiveRecord::Base
 
   # Steps
   # 1. Generate an array for 7 days from the given date
-  # 2. Generate general opening timings includes weekly recurring events 'opening'
+  # 2. Generate general opening timings includes weekly recurring events 'opening' and check if it is in weekly range
   # 3. Generate appointment timings based on kind 'appointment'
   # 4. (Step 2 - Step 3) => remaining timings - free appointment timings
   # 5. Print the day with the free timings
@@ -31,7 +25,8 @@ class Event < ActiveRecord::Base
     end
 
     slots = next_7_days_planning.map do |day|
-      event_exists(day).present? ? calculate_slots(day) : []
+      final_results = calculate_slots(day)
+      final_results.present? ? final_results : []
     end
 
     next_7_days_planning.each_with_index.map do |day, i|
@@ -44,13 +39,15 @@ class Event < ActiveRecord::Base
 
     #Get weekly re-ocurring events and generate opening time
     weekly_recurring_events.each do |opening|
-      slots.push(opening.generate_slots)
+      if in_weekly_recurring(day, opening)
+        slots.push(opening.generate_slots)
+      end
     end
 
-    #Get non recurring events and generate opening time
-    non_recurring_events(day).each do |opening|
-      slots.push(opening.generate_slots)
-    end
+    # #Get non recurring events and generate opening time
+    # non_recurring_events(day).each do |opening|
+    #   slots.push(opening.generate_slots)
+    # end
 
     #Get appointment events and generate the occupied timings
     appointments(day).each do |appointment|
@@ -59,6 +56,12 @@ class Event < ActiveRecord::Base
 
     #Opening time - Occupied time => free timings
     slots[1].present? ? slots[0] - slots[1] : slots[0]
+  end
+
+  def self.in_weekly_recurring(generated_date, opening_event_date)
+    get_day = generated_date.mday
+    mod = get_day % 7
+    opening_event_date.starts_at.mday == mod
   end
 
   def format_to_hour(date)
