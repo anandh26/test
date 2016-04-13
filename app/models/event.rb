@@ -2,7 +2,8 @@ class Event < ActiveRecord::Base
   scope :weekly_recurring_events, lambda { where(weekly_recurring: true, kind: 'opening') }
 
   scope :non_recurring_events, lambda { |day|
-    where("starts_at >= ? AND ends_at <= ? AND weekly_recurring = ? ", day.beginning_of_day, day.end_of_day, false)
+    where("starts_at >= ? AND ends_at <= ? AND weekly_recurring = ? AND Kind = ? ",
+          day.beginning_of_day, day.end_of_day, false, 'opening')
   }
 
   scope :appointments,  lambda { |day|
@@ -38,30 +39,56 @@ class Event < ActiveRecord::Base
     slots = []
 
     #Get weekly re-ocurring events and generate opening time
-    weekly_recurring_events.each do |opening|
-      if in_weekly_recurring(day, opening)
-        slots.push(opening.generate_slots)
-      end
-    end
+    slots = recurring_events_slots(slots, day)
 
     # #Get non recurring events and generate opening time
-    # non_recurring_events(day).each do |opening|
-    #   slots.push(opening.generate_slots)
-    # end
+    slots = non_recurring_events_slots(slots, day)
 
     #Get appointment events and generate the occupied timings
-    appointments(day).each do |appointment|
-      slots.push(appointment.generate_slots)
-    end
+    slots = appointment_events_slots(slots, day)
 
     #Opening time - Occupied time => free timings
     slots[1].present? ? slots[0] - slots[1] : slots[0]
   end
 
+  def self.non_recurring_events_slots(slots, day)
+    temp_slots = []
+    non_recurring_events(day).each do |opening|
+      temp_slots.push(opening.generate_slots)
+    end
+    append_slots(temp_slots, slots)
+  end
+
+  def self.appointment_events_slots(slots, day)
+    temp_slots = []
+    appointments(day).each do |appointment|
+      temp_slots.push(appointment.generate_slots)
+    end
+    append_slots(temp_slots, slots)
+  end
+
+  def self.recurring_events_slots(slots, day)
+    temp_slots = []
+    weekly_recurring_events.each do |opening|
+      if in_weekly_recurring(day, opening)
+        temp_slots.push(opening.generate_slots)
+      end
+    end
+    append_slots(temp_slots, slots)
+  end
+
+  def self.append_slots(temp_slots, slots)
+    if temp_slots.present?
+      slots.push(temp_slots.flatten)
+    end
+    slots
+  end
+
+  #check if the appointment date is an recurring date
   def self.in_weekly_recurring(generated_date, opening_event_date)
-    get_day = generated_date.mday
-    mod = get_day % 7
-    opening_event_date.starts_at.mday == mod
+    diff = ((generated_date.to_date) - (opening_event_date.starts_at.to_date)).to_i
+    mod = diff % 7
+    mod == 0
   end
 
   def format_to_hour(date)
